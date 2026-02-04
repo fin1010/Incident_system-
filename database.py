@@ -13,6 +13,19 @@ def init_db():
     conn = get_connection()
     cur = conn.cursor()
 
+    # Users table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            care_home_id INTEGER NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('staff', 'manager')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    # Incidents table (unchanged)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS incidents (
             incident_id TEXT PRIMARY KEY,
@@ -43,5 +56,6 @@ def init_db():
         );
     """)
 
+    conn.commit()
     cur.close()
 
