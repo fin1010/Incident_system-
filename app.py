@@ -3,6 +3,21 @@ import streamlit as st
 import pandas as pd
 from datetime import date, time, datetime
 
+# IMPORTANT:
+# Your database.py must expose BOTH:
+#   - get_connection()
+#   - init_db()
+# and init_db() must CREATE the incidents table (schema below assumes Postgres).
+from database import get_connection, init_db
+
+# =================================================
+# DB: create tables on app start
+# =================================================
+init_db()
+
+# =================================================
+# PAGE CONFIG
+# =================================================
 st.set_page_config(
     page_title="Care Home Incident Management",
     page_icon="🧾",
@@ -10,24 +25,236 @@ st.set_page_config(
 )
 
 # ---------------------------
-# State
-# ---------------------------
-if "incidents" not in st.session_state:
-    st.session_state.incidents = []
-
-# ---------------------------
 # Utilities
 # ---------------------------
 def generate_incident_id() -> str:
     return datetime.now().strftime("CSI-%Y%m%d-%H%M%S")  # Clinical / Safety Incident ID
 
-def incidents_df() -> pd.DataFrame:
-    if not st.session_state.incidents:
-        return pd.DataFrame()
-    return pd.DataFrame(st.session_state.incidents)
-
 def require_text(value: str) -> bool:
-    return bool(value and value.strip())
+    return bool(value and str(value).strip())
+
+def insert_incident_to_db(record: dict) -> None:
+    """Postgres INSERT."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO incidents (
+            incident_id,
+            incident_date,
+            incident_time,
+            category,
+            location,
+            resident_identifier,
+            resident_dob,
+            resident_room,
+            incident_account,
+            immediate_actions_taken,
+            harm_injury_sustained,
+            harm_injury_details,
+            individuals_services_informed,
+            severity,
+            reported_by_name,
+            reported_by_role,
+            immediate_learning_actions,
+            audit_integrity_confirmation,
+            submitted_timestamp,
+            management_review_status,
+            management_reviewer_name,
+            management_reviewer_role,
+            management_review_outcome,
+            signoff_decision,
+            signoff_timestamp
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s
+        )
+        """,
+        (
+            record["Incident ID"],
+            record["Incident date"],
+            record["Incident time"],
+            record["Category"],
+            record["Location"],
+            record["Resident identifier"],
+            record["Date of birth"],
+            record["Room"],
+            record["Incident account"],
+            record["Immediate actions taken"],
+            record["Harm / injury sustained"],
+            record["Harm / injury details"],
+            record["Individuals / services informed"],
+            record["Severity"],
+            record["Reported by (name)"],
+            record["Reported by (role)"],
+            record["Immediate learning / actions"],
+            record["Audit integrity confirmation"],
+            record["Submitted timestamp"],
+            record["Management review status"],
+            record["Management reviewer (name)"],
+            record["Management reviewer (role)"],
+            record["Management review outcome"],
+            record["Sign-off decision"],
+            record["Sign-off timestamp"],
+        ),
+    )
+    conn.commit()
+    cur.close()
+
+def fetch_incidents_df() -> pd.DataFrame:
+    """Load incidents from Postgres into a DataFrame."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            incident_id AS "Incident ID",
+            incident_date AS "Incident date",
+            incident_time AS "Incident time",
+            category AS "Category",
+            location AS "Location",
+            resident_identifier AS "Resident identifier",
+            resident_dob AS "Date of birth",
+            resident_room AS "Room",
+            incident_account AS "Incident account",
+            immediate_actions_taken AS "Immediate actions taken",
+            harm_injury_sustained AS "Harm / injury sustained",
+            harm_injury_details AS "Harm / injury details",
+            individuals_services_informed AS "Individuals / services informed",
+            severity AS "Severity",
+            reported_by_name AS "Reported by (name)",
+            reported_by_role AS "Reported by (role)",
+            immediate_learning_actions AS "Immediate learning / actions",
+            audit_integrity_confirmation AS "Audit integrity confirmation",
+            submitted_timestamp AS "Submitted timestamp",
+            management_review_status AS "Management review status",
+            management_reviewer_name AS "Management reviewer (name)",
+            management_reviewer_role AS "Management reviewer (role)",
+            management_review_outcome AS "Management review outcome",
+            signoff_decision AS "Sign-off decision",
+            signoff_timestamp AS "Sign-off timestamp"
+        FROM incidents
+        ORDER BY submitted_timestamp DESC
+        """
+    )
+    rows = cur.fetchall()
+    cols = [desc[0] for desc in cur.description]
+    cur.close()
+
+    if not rows:
+        return pd.DataFrame(columns=cols)
+
+    df = pd.DataFrame(rows, columns=cols)
+    return df
+
+def update_management_review(
+    incident_id: str,
+    reviewer_name: str,
+    reviewer_role: str,
+    review_outcome: str,
+    signoff_decision: str,
+    signoff_timestamp: str,
+    management_review_status: str,
+) -> None:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE incidents
+        SET
+            management_reviewer_name = %s,
+            management_reviewer_role = %s,
+            management_review_outcome = %s,
+            signoff_decision = %s,
+            signoff_timestamp = %s,
+            management_review_status = %s
+        WHERE incident_id = %s
+        """,
+        (
+            reviewer_name,
+            reviewer_role,
+            review_outcome,
+            signoff_decision,
+            signoff_timestamp,
+            management_review_status,
+            incident_id,
+        ),
+    )
+    conn.commit()
+    cur.close()
+
+def get_incident_record(incident_id: str) -> dict | None:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            incident_id,
+            incident_date,
+            incident_time,
+            category,
+            location,
+            resident_identifier,
+            resident_dob,
+            resident_room,
+            incident_account,
+            immediate_actions_taken,
+            harm_injury_sustained,
+            harm_injury_details,
+            individuals_services_informed,
+            severity,
+            reported_by_name,
+            reported_by_role,
+            immediate_learning_actions,
+            audit_integrity_confirmation,
+            submitted_timestamp,
+            management_review_status,
+            management_reviewer_name,
+            management_reviewer_role,
+            management_review_outcome,
+            signoff_decision,
+            signoff_timestamp
+        FROM incidents
+        WHERE incident_id = %s
+        """,
+        (incident_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+
+    if not row:
+        return None
+
+    keys = [
+        "Incident ID",
+        "Incident date",
+        "Incident time",
+        "Category",
+        "Location",
+        "Resident identifier",
+        "Date of birth",
+        "Room",
+        "Incident account",
+        "Immediate actions taken",
+        "Harm / injury sustained",
+        "Harm / injury details",
+        "Individuals / services informed",
+        "Severity",
+        "Reported by (name)",
+        "Reported by (role)",
+        "Immediate learning / actions",
+        "Audit integrity confirmation",
+        "Submitted timestamp",
+        "Management review status",
+        "Management reviewer (name)",
+        "Management reviewer (role)",
+        "Management review outcome",
+        "Sign-off decision",
+        "Sign-off timestamp",
+    ]
+    return dict(zip(keys, row))
 
 # ---------------------------
 # Sidebar navigation
@@ -190,9 +417,10 @@ if page == "Report a clinical / safety incident":
                 "Sign-off timestamp": "",
             }
 
-            st.session_state.incidents.append(record)
-            st.success("Clinical / safety incident submitted. Management review and sign-off can now be completed.")
+            # ✅ SAVE TO POSTGRES (INSERT)
+            insert_incident_to_db(record)
 
+            st.success("Clinical / safety incident submitted. Management review and sign-off can now be completed.")
             with st.expander("View submitted incident (for verification)"):
                 st.json(record)
 
@@ -202,12 +430,11 @@ if page == "Report a clinical / safety incident":
 elif page == "Inspection evidence & audit integrity":
     st.title("🧾 Inspection evidence & audit integrity")
 
-    df = incidents_df()
+    df = fetch_incidents_df()
 
     if df.empty:
         st.info("No clinical / safety incidents have been submitted.")
     else:
-        # Keep language: avoid "logs", use "inspection evidence"
         st.markdown(
             "This section supports **inspection evidence**, **audit integrity**, and **management review and sign-off**. "
             "Use the filters below to find incidents requiring review."
@@ -216,17 +443,9 @@ elif page == "Inspection evidence & audit integrity":
         # Filters
         f1, f2, f3 = st.columns([1, 1, 2])
         with f1:
-            status_filter = st.selectbox(
-                "Management review status",
-                ["All", "Pending", "Completed"],
-                index=0,
-            )
+            status_filter = st.selectbox("Management review status", ["All", "Pending", "Completed"], index=0)
         with f2:
-            severity_filter = st.selectbox(
-                "Severity",
-                ["All", "Low", "Moderate", "High", "Critical"],
-                index=0,
-            )
+            severity_filter = st.selectbox("Severity", ["All", "Low", "Moderate", "High", "Critical"], index=0)
         with f3:
             search_text = st.text_input("Search (resident, location, category, ID)")
 
@@ -240,12 +459,7 @@ elif page == "Inspection evidence & audit integrity":
 
         if search_text.strip():
             q = search_text.strip().lower()
-            cols_to_search = [
-                "Incident ID",
-                "Resident identifier",
-                "Location",
-                "Category",
-            ]
+            cols_to_search = ["Incident ID", "Resident identifier", "Location", "Category"]
             existing_cols = [c for c in cols_to_search if c in view_df.columns]
             if existing_cols:
                 mask = False
@@ -259,24 +473,16 @@ elif page == "Inspection evidence & audit integrity":
         st.markdown("---")
         st.subheader("✅ Management review and sign-off")
 
-        # Pick an incident to review
         incident_ids = view_df["Incident ID"].tolist() if "Incident ID" in view_df.columns else []
         if not incident_ids:
             st.info("No incidents match the current filters.")
         else:
             selected_id = st.selectbox("Select incident for management review", incident_ids)
 
-            # Find in session list
-            idx = next(
-                (i for i, rec in enumerate(st.session_state.incidents) if rec.get("Incident ID") == selected_id),
-                None,
-            )
-
-            if idx is None:
+            current = get_incident_record(selected_id)
+            if not current:
                 st.error("Selected incident could not be found.")
             else:
-                current = st.session_state.incidents[idx]
-
                 with st.expander("View incident details"):
                     st.json(current)
 
@@ -322,18 +528,27 @@ elif page == "Inspection evidence & audit integrity":
                         for e in review_errors:
                             st.error(e)
                     else:
-                        st.session_state.incidents[idx]["Management reviewer (name)"] = reviewer_name.strip()
-                        st.session_state.incidents[idx]["Management reviewer (role)"] = reviewer_role.strip()
-                        st.session_state.incidents[idx]["Management review outcome"] = review_outcome.strip()
-                        st.session_state.incidents[idx]["Sign-off decision"] = signoff_decision
-                        st.session_state.incidents[idx]["Sign-off timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        st.session_state.incidents[idx]["Management review status"] = "Completed" if evidence_ready else "Completed"
+                        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        status = "Completed"  # evidence_ready currently just a checkbox, status remains Completed either way
+
+                        # ✅ UPDATE IN POSTGRES
+                        update_management_review(
+                            incident_id=selected_id,
+                            reviewer_name=reviewer_name.strip(),
+                            reviewer_role=reviewer_role.strip(),
+                            review_outcome=review_outcome.strip(),
+                            signoff_decision=signoff_decision,
+                            signoff_timestamp=ts,
+                            management_review_status=status,
+                        )
 
                         st.success("Management review and sign-off completed.")
+                        st.rerun()
 
         st.markdown("---")
         st.subheader("Export for inspection evidence")
-        export_df = incidents_df()
+
+        export_df = fetch_incidents_df()
         csv = export_df.to_csv(index=False).encode("utf-8")
 
         st.download_button(
@@ -342,3 +557,4 @@ elif page == "Inspection evidence & audit integrity":
             file_name=f"clinical_safety_incidents_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
         )
+
