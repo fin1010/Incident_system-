@@ -4,12 +4,15 @@ import psycopg2
 
 @st.cache_resource
 def get_connection():
-    return psycopg2.connect(st.secrets["DATABASE_URL"])
+    conn = psycopg2.connect(st.secrets["DATABASE_URL"])
+    conn.autocommit = True  # IMPORTANT: prevents failed-transaction lock
+    return conn
 
 
 def init_db():
     conn = get_connection()
     cur = conn.cursor()
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS incidents (
             incident_id TEXT PRIMARY KEY,
@@ -39,6 +42,6 @@ def init_db():
             signoff_timestamp TEXT
         );
     """)
-    conn.commit()
+
     cur.close()
 
