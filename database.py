@@ -3,10 +3,8 @@ import psycopg2
 
 @st.cache_resource
 def get_connection():
-    return psycopg2.connect(
-        st.secrets["DATABASE_URL"],
-        sslmode="require"
-    )
+    return psycopg2.connect(st.secrets["DATABASE_URL"])
+  )
 
 def init_db():
     conn = get_connection()
