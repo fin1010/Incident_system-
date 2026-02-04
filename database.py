@@ -2,18 +2,34 @@ import streamlit as st
 import psycopg2
 
 
+# =================================================
+# DATABASE CONNECTION
+# =================================================
 @st.cache_resource
 def get_connection():
+    """
+    Returns a cached Postgres connection using Streamlit secrets.
+    Autocommit is enabled to avoid failed-transaction issues.
+    """
     conn = psycopg2.connect(st.secrets["DATABASE_URL"])
-    conn.autocommit = True  # IMPORTANT: prevents failed-transaction lock
+    conn.autocommit = True
     return conn
 
 
+# =================================================
+# INITIALISE DATABASE SCHEMA
+# =================================================
 def init_db():
+    """
+    Creates required tables and columns if they do not already exist.
+    Safe to run on every app start.
+    """
     conn = get_connection()
     cur = conn.cursor()
 
-    # Users table
+    # -----------------------------
+    # USERS TABLE (AUTHENTICATION)
+    # -----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -25,37 +41,49 @@ def init_db():
         );
     """)
 
-    # Incidents table (unchanged)
+    # -----------------------------
+    # INCIDENTS TABLE (CORE DATA)
+    # -----------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS incidents (
-            incident_id TEXT PRIMARY KEY,
-            incident_date TEXT,
-            incident_time TEXT,
-            category TEXT,
-            location TEXT,
-            resident_identifier TEXT,
-            resident_dob TEXT,
-            resident_room TEXT,
-            incident_account TEXT,
-            immediate_actions_taken TEXT,
-            harm_injury_sustained TEXT,
-            harm_injury_details TEXT,
-            individuals_services_informed TEXT,
-            severity TEXT,
-            reported_by_name TEXT,
-            reported_by_role TEXT,
-            immediate_learning_actions TEXT,
-            audit_integrity_confirmation TEXT,
-            submitted_timestamp TEXT,
-            management_review_status TEXT,
-            management_reviewer_name TEXT,
-            management_reviewer_role TEXT,
-            management_review_outcome TEXT,
-            signoff_decision TEXT,
-            signoff_timestamp TEXT
+            id SERIAL PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            care_home_id INTEGER NOT NULL,
+            incident_type TEXT,
+            description TEXT,
+            completed_by_name TEXT,
+            completed_by_role TEXT
         );
     """)
 
-    conn.commit()
+    # -----------------------------
+    # MANAGEMENT REVIEW FIELDS
+    # (added safely via ALTER)
+    # -----------------------------
+    cur.execute("""
+        ALTER TABLE incidents
+        ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+    """)
+
+    cur.execute("""
+        ALTER TABLE incidents
+        ADD COLUMN IF NOT EXISTS review_outcome TEXT;
+    """)
+
+    cur.execute("""
+        ALTER TABLE incidents
+        ADD COLUMN IF NOT EXISTS signoff_decision TEXT;
+    """)
+
+    cur.execute("""
+        ALTER TABLE incidents
+        ADD COLUMN IF NOT EXISTS signed_off_at TIMESTAMP;
+    """)
+
+    cur.execute("""
+        ALTER TABLE incidents
+        ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE;
+    """)
+
     cur.close()
 
